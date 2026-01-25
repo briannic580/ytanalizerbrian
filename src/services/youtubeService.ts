@@ -170,6 +170,132 @@ export const fetchTrendingVideos = async (apiKey: string, limit: number = 50, re
   };
 };
 
+// Helper to resolve channel handle/username to channel ID
+const resolveChannelId = async (apiKey: string, handle: string): Promise<{ channelId: string; channelTitle: string } | null> => {
+  // Clean handle - remove @ if present
+  const cleanHandle = handle.startsWith('@') ? handle.substring(1) : handle;
+  
+  // Try using channels endpoint with forHandle (newer API)
+  trackQuota(1);
+  try {
+    const handleRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet&forHandle=${encodeURIComponent(cleanHandle)}&key=${apiKey}`);
+    const handleData = await handleRes.json();
+    
+    if (handleData.items?.[0]) {
+      return {
+        channelId: handleData.items[0].id,
+        channelTitle: handleData.items[0].snippet.title
+      };
+    }
+  } catch (e) {
+    console.log('Handle lookup failed, trying search...');
+  }
+
+  // Fallback to search API
+  trackQuota(100);
+  const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(cleanHandle)}&maxResults=1&key=${apiKey}`);
+  const searchData = await searchRes.json();
+  
+  if (searchData.items?.[0]) {
+    return {
+      channelId: searchData.items[0].id.channelId || searchData.items[0].snippet.channelId,
+      channelTitle: searchData.items[0].snippet.title
+    };
+  }
+  
+  return null;
+};
+
+// Helper to fetch all videos from a channel
+const fetchChannelVideos = async (apiKey: string, channelId: string, limit: number): Promise<string[]> => {
+  let videoIds: string[] = [];
+  let pageToken = "";
+
+  // First, try to get the uploads playlist for the channel (more reliable)
+  trackQuota(1);
+  const channelRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelId}&key=${apiKey}`);
+  const channelData = await channelRes.json();
+  
+  const uploadsPlaylistId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+  
+  if (uploadsPlaylistId) {
+    // Use playlist items - more reliable and cheaper quota
+    while (videoIds.length < limit) {
+      trackQuota(1);
+      const maxResults = Math.min(limit - videoIds.length, 50);
+      const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}${pageToken ? `&pageToken=${pageToken}` : ''}&key=${apiKey}`);
+      const data = await res.json();
+      
+      if (!data.items?.length) break;
+      
+      const ids = data.items.map((i: any) => i.contentDetails.videoId).filter(Boolean);
+      videoIds = [...videoIds, ...ids];
+      pageToken = data.nextPageToken || "";
+      
+      if (!pageToken) break;
+    }
+  } else {
+    // Fallback to search API
+    while (videoIds.length < limit) {
+      trackQuota(100);
+      const maxResults = Math.min(limit - videoIds.length, 50);
+      const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=id&channelId=${channelId}&maxResults=${maxResults}&order=date&type=video${pageToken ? `&pageToken=${pageToken}` : ''}&key=${apiKey}`);
+      const data = await res.json();
+      
+      if (!data.items?.length) break;
+      
+      videoIds = [...videoIds, ...data.items.map((i: any) => i.id.videoId).filter(Boolean)];
+      pageToken = data.nextPageToken || "";
+      
+      if (!pageToken) break;
+    }
+  }
+
+  return videoIds;
+};
+
+// Detect if query is a channel handle or username
+const isChannelHandle = (query: string): boolean => {
+  const trimmed = query.trim();
+  // Matches @username pattern (direct handle input)
+  if (/^@[\w.-]+$/.test(trimmed)) return true;
+  // Matches YouTube channel URL patterns
+  if (trimmed.includes('youtube.com/@')) return true;
+  if (trimmed.includes('youtube.com/channel/')) return true;
+  if (trimmed.includes('youtube.com/c/')) return true;
+  if (trimmed.includes('youtube.com/user/')) return true;
+  return false;
+};
+
+// Extract handle from query
+const extractHandle = (query: string): string => {
+  const trimmed = query.trim();
+  
+  // Direct @handle input
+  if (/^@[\w.-]+$/.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // From URL: youtube.com/@handle
+  if (trimmed.includes('/@')) {
+    const match = trimmed.match(/@([\w.-]+)/);
+    return match ? `@${match[1]}` : trimmed;
+  }
+  
+  // From URL: youtube.com/channel/UCxxxx
+  if (trimmed.includes('/channel/')) {
+    return trimmed.split('/channel/')[1].split(/[?&/]/)[0];
+  }
+  
+  // From URL: youtube.com/c/ChannelName or youtube.com/user/username
+  if (trimmed.includes('/c/') || trimmed.includes('/user/')) {
+    const parts = trimmed.split('/');
+    return parts[parts.length - 1].split(/[?&]/)[0];
+  }
+  
+  return trimmed;
+};
+
 export const fetchYouTubeData = async (apiKey: string, query: string, limit: FetchLimit): Promise<AnalyzedData> => {
   const cleanQuery = query.trim();
   const cacheKey = `analysis_${cleanQuery}_${limit}`;
@@ -181,10 +307,11 @@ export const fetchYouTubeData = async (apiKey: string, query: string, limit: Fet
   let channelTitle = "Pencarian";
   let channelId = "";
 
-  // Detect Playlist
+  // Detect Playlist URL
   const playlistMatch = cleanQuery.match(/[&?]list=([^&]+)/);
 
   if (playlistMatch) {
+    // --- PLAYLIST MODE ---
     const playlistId = playlistMatch[1];
     while (videoIds.length < limit) {
       trackQuota(1);
@@ -198,33 +325,32 @@ export const fetchYouTubeData = async (apiKey: string, query: string, limit: Fet
     }
     channelTitle = "Playlist Content";
   }
-  else if (cleanQuery.includes('youtube.com/@') || cleanQuery.includes('youtube.com/channel/') || cleanQuery.includes('youtube.com/c/')) {
-    let cid = "";
-    if (cleanQuery.includes('/channel/')) {
-      cid = cleanQuery.split('/channel/')[1].split(/[?&/]/)[0];
+  else if (isChannelHandle(cleanQuery)) {
+    // --- CHANNEL MODE (Handle, URL, or @username) ---
+    const handle = extractHandle(cleanQuery);
+    
+    // Check if it's already a channel ID (starts with UC)
+    if (handle.startsWith('UC') && handle.length === 24) {
+      channelId = handle;
     } else {
-      const handle = cleanQuery.includes('@') ? cleanQuery.split('@')[1].split(/[?&/]/)[0] : cleanQuery.split('/').pop();
-      trackQuota(100);
-      const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=id&type=channel&q=${handle}&key=${apiKey}`);
-      const searchData = await searchRes.json();
-      cid = searchData.items?.[0]?.id?.channelId || "";
+      // Resolve handle to channel ID
+      const resolved = await resolveChannelId(apiKey, handle);
+      if (resolved) {
+        channelId = resolved.channelId;
+        channelTitle = resolved.channelTitle;
+      }
     }
 
-    if (cid) {
-      channelId = cid;
-      while (videoIds.length < limit) {
-        trackQuota(100);
-        const maxResults = Math.min(limit - videoIds.length, 50);
-        const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=id&channelId=${cid}&maxResults=${maxResults}&order=date&type=video${pageToken ? `&pageToken=${pageToken}` : ''}&key=${apiKey}`);
-        const data = await res.json();
-        if (!data.items?.length) break;
-        videoIds = [...videoIds, ...data.items.map((i: any) => i.id.videoId)];
-        pageToken = data.nextPageToken;
-        if (!pageToken) break;
-      }
+    if (channelId) {
+      videoIds = await fetchChannelVideos(apiKey, channelId, limit);
+    }
+
+    if (!channelId || !videoIds.length) {
+      throw new Error(`Channel "${handle}" tidak ditemukan. Pastikan nama channel benar.`);
     }
   }
   else {
+    // --- SEARCH MODE (General keyword search) ---
     while (videoIds.length < limit) {
       trackQuota(100);
       const maxResults = Math.min(limit - videoIds.length, 50);
@@ -243,7 +369,13 @@ export const fetchYouTubeData = async (apiKey: string, query: string, limit: Fet
   if (channelId) stats = await fetchChannelInfo(apiKey, channelId);
 
   const resultVideos = await fetchVideoDetails(apiKey, videoIds, stats?.subCountRaw);
-  const finalResult = {
+  
+  // Update channel title from video data if not set
+  if (channelTitle === "Pencarian" && resultVideos.length > 0 && channelId) {
+    channelTitle = resultVideos[0].channelTitle;
+  }
+
+  const finalResult: AnalyzedData = {
     videos: resultVideos,
     channelTitle,
     channelId,
