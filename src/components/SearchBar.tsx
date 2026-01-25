@@ -9,18 +9,27 @@ interface SearchBarProps {
   placeholder?: string;
 }
 
+// Extend window for Speech Recognition
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
 const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, placeholder }) => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [isListening, setIsListening] = useState(false);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('yt_search_history');
-    if (saved) try { setHistory(JSON.parse(saved)); } catch (e) {}
+    if (saved) try { setHistory(JSON.parse(saved)); } catch {}
   }, []);
 
   const addToHistory = (val: string) => {
@@ -59,6 +68,31 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, placeh
     onSearch(val);
     addToHistory(val);
     setIsFocused(false);
+  };
+
+  const startVoiceSearch = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Voice search is not supported in this browser');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'id-ID';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setQuery(transcript);
+      handleSelect(transcript);
+    };
+
+    recognition.start();
   };
 
   return (
@@ -122,9 +156,16 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch, placeh
         </button>
       </div>
 
-      <div className="hidden lg:flex items-center justify-center w-10 h-10 bg-secondary border border-border rounded-2xl hover:bg-accent transition-colors text-muted-foreground cursor-pointer">
+      <button 
+        onClick={startVoiceSearch}
+        className={`hidden lg:flex items-center justify-center w-10 h-10 rounded-2xl transition-all ${
+          isListening 
+            ? 'bg-primary text-primary-foreground animate-pulse' 
+            : 'bg-secondary border border-border hover:bg-accent text-muted-foreground'
+        }`}
+      >
         <IconMic className="w-4 h-4" />
-      </div>
+      </button>
     </div>
   );
 };
