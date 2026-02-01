@@ -1,8 +1,9 @@
-// PDF Report Generator Service
+// PDF Report Generator Service - Comprehensive reports with thumbnails
 
 import jsPDF from 'jspdf';
 import { VideoItem, ChannelStats } from '../types';
 import { formatNumber } from './youtubeService';
+import { calculateAllVideoScores, getAverageScores, VideoWithScores } from './performanceScoreService';
 
 interface ReportData {
   channelTitle: string;
@@ -10,6 +11,24 @@ interface ReportData {
   videos: VideoItem[];
   generatedAt: Date;
 }
+
+// Fetch thumbnail as base64 for PDF embedding
+const fetchThumbnailAsBase64 = async (url: string): Promise<string | null> => {
+  try {
+    // Use a proxy or direct fetch - YouTube thumbnails should work
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.error('Failed to fetch thumbnail:', e);
+    return null;
+  }
+};
 
 const addHeader = (doc: jsPDF, title: string, pageNum: number) => {
   doc.setFillColor(239, 68, 68); // Red accent
@@ -39,10 +58,24 @@ const addSection = (doc: jsPDF, title: string, y: number): number => {
   return y + 15;
 };
 
+const getGradeColor = (grade: string): [number, number, number] => {
+  switch (grade) {
+    case 'A': return [16, 185, 129]; // emerald
+    case 'B': return [59, 130, 246]; // blue
+    case 'C': return [234, 179, 8]; // yellow
+    case 'D': return [249, 115, 22]; // orange
+    default: return [239, 68, 68]; // red
+  }
+};
+
 export const generatePDFReport = async (data: ReportData): Promise<void> => {
   const doc = new jsPDF('p', 'mm', 'a4');
   let currentY = 35;
   let currentPage = 1;
+
+  // Calculate scores for all videos
+  const scoredVideos = calculateAllVideoScores(data.videos);
+  const { avgTitleScore, avgThumbnailScore } = getAverageScores(data.videos);
 
   const checkPageBreak = (neededSpace: number) => {
     if (currentY + neededSpace > 270) {
@@ -104,7 +137,7 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
     currentY += 35;
   }
 
-  // === Videos Analyzed Section ===
+  // === Analysis Summary Section ===
   currentY = addSection(doc, 'Analysis Summary', currentY);
   
   const totalViews = data.videos.reduce((sum, v) => sum + v.viewCountRaw, 0);
@@ -143,51 +176,96 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
   });
   currentY += 35;
 
-  // === Top 10 Performing Videos ===
+  // === Performance Scores Summary ===
+  currentY = addSection(doc, 'Performance Scores', currentY);
+  
+  doc.setFontSize(10);
+  doc.setTextColor(30, 30, 30);
+  doc.text(`Average Title Score: ${avgTitleScore}/100`, 20, currentY);
+  doc.text(`Average Thumbnail Score: ${avgThumbnailScore}/100`, 100, currentY);
+  currentY += 15;
+
+  // === Top 20 Performing Videos with Thumbnails ===
   checkPageBreak(100);
-  currentY = addSection(doc, 'Top 10 Performing Videos', currentY);
+  currentY = addSection(doc, 'Top 20 Performing Videos', currentY);
 
-  const topVideos = [...data.videos]
+  const topVideos = [...scoredVideos]
     .sort((a, b) => b.viewCountRaw - a.viewCountRaw)
-    .slice(0, 10);
+    .slice(0, 20);
 
-  // Table Header
-  doc.setFillColor(245, 245, 245);
-  doc.rect(15, currentY, 180, 8, 'F');
-  doc.setFontSize(8);
-  doc.setTextColor(80, 80, 80);
-  doc.setFont('helvetica', 'bold');
-  doc.text('#', 18, currentY + 5);
-  doc.text('Title', 25, currentY + 5);
-  doc.text('Views', 130, currentY + 5);
-  doc.text('Likes', 155, currentY + 5);
-  doc.text('ER%', 178, currentY + 5);
-  currentY += 10;
+  // Fetch thumbnails in parallel (limit to first 10 for performance)
+  const thumbnailPromises = topVideos.slice(0, 10).map(v => fetchThumbnailAsBase64(v.thumbnail));
+  const thumbnailImages = await Promise.all(thumbnailPromises);
 
-  topVideos.forEach((video, i) => {
-    checkPageBreak(10);
+  for (let i = 0; i < topVideos.length; i++) {
+    const video = topVideos[i];
+    checkPageBreak(35);
     
     const y = currentY;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(80, 80, 80);
-    doc.text((i + 1).toString(), 18, y);
+    const hasImage = i < 10 && thumbnailImages[i];
     
-    // Truncate title
-    const maxTitleLength = 50;
+    // Video number
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(239, 68, 68);
+    doc.text(`#${i + 1}`, 15, y + 8);
+    
+    // Thumbnail image (if available)
+    if (hasImage && thumbnailImages[i]) {
+      try {
+        doc.addImage(thumbnailImages[i]!, 'JPEG', 25, y, 32, 18);
+      } catch (e) {
+        // Draw placeholder
+        doc.setFillColor(240, 240, 240);
+        doc.rect(25, y, 32, 18, 'F');
+      }
+    } else {
+      // Draw placeholder rectangle
+      doc.setFillColor(240, 240, 240);
+      doc.rect(25, y, 32, 18, 'F');
+      doc.setFontSize(6);
+      doc.setTextColor(150, 150, 150);
+      doc.text('THUMBNAIL', 30, y + 10);
+    }
+    
+    // Video info
+    const infoX = 62;
+    
+    // Title (truncated)
+    const maxTitleLength = 55;
     const title = video.title.length > maxTitleLength 
       ? video.title.substring(0, maxTitleLength) + '...'
       : video.title;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 30, 30);
-    doc.text(title, 25, y);
+    doc.text(title, infoX, y + 5);
+    
+    // Stats row
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(80, 80, 80);
+    doc.text(`Views: ${video.views} | Likes: ${video.likes} | ER: ${video.engagementRate}%`, infoX, y + 11);
+    
+    // Scores
+    const titleGradeColor = getGradeColor(video.titleScore.grade);
+    const thumbGradeColor = getGradeColor(video.thumbnailScore.grade);
+    
+    doc.setFontSize(7);
+    doc.text(`Title Score: `, infoX, y + 17);
+    doc.setTextColor(...titleGradeColor);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${video.titleScore.totalScore} (${video.titleScore.grade})`, infoX + 20, y + 17);
     
     doc.setTextColor(80, 80, 80);
-    doc.text(video.views, 130, y);
-    doc.text(video.likes, 155, y);
-    doc.text(`${video.engagementRate}%`, 178, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`| Thumb Score: `, infoX + 40, y + 17);
+    doc.setTextColor(...thumbGradeColor);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${video.thumbnailScore.totalScore} (${video.thumbnailScore.grade})`, infoX + 62, y + 17);
     
-    currentY += 8;
-  });
+    currentY += 22;
+  }
 
   currentY += 10;
 

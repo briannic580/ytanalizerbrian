@@ -41,9 +41,10 @@ import ContentGapAnalyzer from '../components/ContentGapAnalyzer';
 import UploadScheduleAnalyzer from '../components/UploadScheduleAnalyzer';
 import TitleScoreAnalyzer from '../components/TitleScoreAnalyzer';
 import SearchHistoryPage from '../components/SearchHistoryPage';
+import DownloaderPage from '../components/DownloaderPage';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { fetchYouTubeData, fetchTrendingVideos, getQuotaUsage } from '../services/youtubeService';
-import { generateCSV, exportToExcel } from '../services/exportService';
+import { generateCSV, exportToExcel, generateFullAnalysisCSV } from '../services/exportService';
 import { generateZip } from '../services/zipService';
 import { generatePDFReport } from '../services/pdfService';
 import { Input } from '../components/ui/input';
@@ -799,6 +800,8 @@ const YouTubeAnalyzer: React.FC = () => {
                   )
                 ) : mode === 'history' ? (
                   <SearchHistoryPage onSearch={handleSearchFromHistory} onToast={showToast} />
+                ) : mode === 'downloader' ? (
+                  <DownloaderPage />
                 ) : (
                   <>
                     {/* Select All Checkbox when in Select Mode */}

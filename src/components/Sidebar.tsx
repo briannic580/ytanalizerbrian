@@ -1,5 +1,5 @@
 import React from 'react';
-import { IconHome, IconSubs, IconUser, IconHistory, IconTrending, IconChart, IconSparkles } from '../constants/icons';
+import { IconHome, IconSubs, IconUser, IconHistory, IconTrending, IconChart, IconSparkles, IconDownload } from '../constants/icons';
 import { AnalysisMode } from '../types';
 
 interface RowProps {
@@ -85,9 +85,23 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, onFetchTre
         />
         <Row 
           icon={<IconChart />} 
-          label="Title Score" 
+          label="Title & Thumbnail Score" 
           active={currentMode === 'title_score'} 
           onClick={() => onModeChange('title_score')} 
+        />
+      </div>
+
+      <div className="my-6 border-t border-border/50" />
+
+      <div className="space-y-1">
+        <div className="px-4 mb-2 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+          Tools
+        </div>
+        <Row 
+          icon={<IconDownload />} 
+          label="Video Downloader" 
+          active={currentMode === 'downloader'} 
+          onClick={() => onModeChange('downloader')} 
         />
       </div>
 

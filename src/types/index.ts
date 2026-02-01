@@ -64,7 +64,7 @@ export interface AnalyzedData {
 }
 
 // Navigation Modes - Updated with new modes
-export type AnalysisMode = 'dashboard' | 'trending' | 'insights' | 'benchmark' | 'saved' | 'content_gap' | 'history' | 'schedule' | 'title_score';
+export type AnalysisMode = 'dashboard' | 'trending' | 'insights' | 'benchmark' | 'saved' | 'content_gap' | 'history' | 'schedule' | 'title_score' | 'downloader';
 
 // Content Type Filter
 export type ContentTypeFilter = 'all' | 'long' | 'shorts';
