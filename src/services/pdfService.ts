@@ -392,8 +392,8 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
     const video = sortedVideos[i];
     const thumbnailBase64 = thumbnailMap.get(video.id);
     
-    // Video entry box
-    const entryHeight = 48;
+    // Video entry box - dynamic height based on title length
+    const entryHeight = 52;
     
     if (currentY + entryHeight > 275) {
       doc.addPage();
@@ -455,32 +455,39 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
 
     // Video info - right side
     const infoX = thumbX + thumbW + 5;
+    const maxInfoWidth = 115; // Wider area for text
     
-    // Title (2 lines max)
-    const maxTitleLength = 60;
-    const title = video.title.length > maxTitleLength 
-      ? video.title.substring(0, maxTitleLength) + '...'
-      : video.title;
-    doc.setFontSize(9);
+    // Title - FULL title with proper wrapping (up to 3 lines)
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 30, 30);
     
-    // Split title if too long
-    const titleLines = doc.splitTextToSize(title, 110);
-    doc.text(titleLines.slice(0, 2), infoX, currentY + 7);
+    // Use full title, let jsPDF wrap it properly
+    const titleLines = doc.splitTextToSize(video.title, maxInfoWidth);
+    // Show up to 3 lines of title
+    const displayTitleLines = titleLines.slice(0, 3);
+    if (titleLines.length > 3) {
+      // Add ellipsis to last line if truncated
+      displayTitleLines[2] = displayTitleLines[2].substring(0, displayTitleLines[2].length - 3) + '...';
+    }
+    doc.text(displayTitleLines, infoX, currentY + 6);
+    
+    // Calculate Y position based on number of title lines
+    const titleLineCount = Math.min(displayTitleLines.length, 3);
+    const titleEndY = currentY + 6 + (titleLineCount - 1) * 3.5;
     
     // Stats row 1: Views, Likes, Comments - Plain text labels (NO EMOJIS)
-    const statsY = currentY + (titleLines.length > 1 ? 18 : 14);
+    const statsY = titleEndY + 5;
     doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(80, 80, 80);
     doc.text(`Views: ${video.views}  |  Likes: ${video.likes}  |  Comments: ${video.comments || '0'}`, infoX, statsY);
     
     // Stats row 2: ER, Duration, Published - Plain text labels (NO EMOJIS)
-    doc.text(`ER: ${video.engagementRate}%  |  Duration: ${video.durationFormatted}  |  Published: ${video.publishedTimeAgo}`, infoX, statsY + 6);
+    doc.text(`ER: ${video.engagementRate}%  |  Duration: ${video.durationFormatted}  |  Published: ${video.publishedTimeAgo}`, infoX, statsY + 5);
     
     // Scores row
-    const scoresY = statsY + 12;
+    const scoresY = statsY + 10;
     doc.setFontSize(7);
     
     // Title score
@@ -506,8 +513,8 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(120, 120, 120);
       const tagsText = video.tags.slice(0, 5).join(', ');
-      const truncatedTags = tagsText.length > 50 ? tagsText.substring(0, 50) + '...' : tagsText;
-      doc.text(`Tags: ${truncatedTags}`, infoX, scoresY + 6);
+      const truncatedTags = tagsText.length > 60 ? tagsText.substring(0, 60) + '...' : tagsText;
+      doc.text(`Tags: ${truncatedTags}`, infoX, scoresY + 5);
     }
 
     currentY += entryHeight + 2;
