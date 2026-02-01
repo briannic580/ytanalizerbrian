@@ -119,7 +119,16 @@ const getGrade = (score: number): string => {
 };
 
 export const generatePDFReport = async (data: ReportData): Promise<void> => {
-  console.log('Starting PDF generation...');
+  console.log('Starting PDF generation...', { 
+    videosCount: data.videos?.length || 0,
+    hasChannelStats: !!data.channelStats 
+  });
+  
+  // Validate input data
+  if (!data.videos || data.videos.length === 0) {
+    throw new Error('No videos to generate report');
+  }
+  
   const doc = new jsPDF('p', 'mm', 'a4');
   let currentY = 30;
   let currentPage = 1;
@@ -129,18 +138,42 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
   const videosForPDF = data.videos.slice(0, maxVideos);
 
   // Calculate scores for all videos
-  const scoredVideos = calculateAllVideoScores(videosForPDF);
-  const { avgTitleScore, avgThumbnailScore } = getAverageScores(videosForPDF);
+  let scoredVideos;
+  let avgTitleScore = 50;
+  let avgThumbnailScore = 50;
+  
+  try {
+    scoredVideos = calculateAllVideoScores(videosForPDF);
+    const scores = getAverageScores(videosForPDF);
+    avgTitleScore = scores.avgTitleScore;
+    avgThumbnailScore = scores.avgThumbnailScore;
+  } catch (e) {
+    console.warn('Error calculating scores, using defaults:', e);
+    scoredVideos = videosForPDF.map(v => ({
+      ...v,
+      titleScore: { totalScore: 50, grade: 'C' as const, breakdown: {} },
+      thumbnailScore: { totalScore: 50, grade: 'C' as const, breakdown: {} }
+    }));
+  }
 
   // Fetch ALL thumbnails (batched)
   console.log('Fetching thumbnails...');
-  const thumbnailMap = await fetchThumbnailsBatch(videosForPDF, 5);
-  console.log(`Fetched ${thumbnailMap.size} thumbnails successfully`);
+  let thumbnailMap = new Map<string, string>();
+  try {
+    thumbnailMap = await fetchThumbnailsBatch(videosForPDF, 5);
+    console.log(`Fetched ${thumbnailMap.size} thumbnails successfully`);
+  } catch (e) {
+    console.warn('Error fetching thumbnails:', e);
+  }
 
   // Fetch channel avatar if available
   let avatarBase64: string | null = null;
-  if (data.channelStats?.avatar) {
-    avatarBase64 = await fetchThumbnailAsBase64(data.channelStats.avatar, 5000);
+  try {
+    if (data.channelStats?.avatar) {
+      avatarBase64 = await fetchThumbnailAsBase64(data.channelStats.avatar, 5000);
+    }
+  } catch (e) {
+    console.warn('Error fetching avatar:', e);
   }
 
   // Calculate statistics
@@ -614,29 +647,33 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
     doc.text(`Views: ${video.views}  |  Likes: ${video.likes}  |  Comments: ${video.comments || '0'}`, infoX, statsY);
     
     // Stats row 2: ER, Duration, Published with SPECIFIC DATE
-    const specificDate = formatSpecificDate(video.publishedAtDate);
-    doc.text(`ER: ${video.engagementRate}%  |  Duration: ${video.durationFormatted}  |  Published: ${specificDate}`, infoX, statsY + 5);
+    const publishDate = video.publishedAtDate ? formatSpecificDate(new Date(video.publishedAtDate)) : video.publishedTimeAgo || 'N/A';
+    doc.text(`ER: ${video.engagementRate || 0}%  |  Duration: ${video.durationFormatted || 'N/A'}  |  Published: ${publishDate}`, infoX, statsY + 5);
     
-    // Scores row
+    // Scores row - with safe access
     const scoresY = statsY + 10;
     doc.setFontSize(7);
+    
+    // Get scores with fallback
+    const titleScore = video.titleScore || { totalScore: 50, grade: 'C' as const };
+    const thumbnailScore = video.thumbnailScore || { totalScore: 50, grade: 'C' as const };
     
     // Title score
     doc.setTextColor(80, 80, 80);
     doc.text('Title: ', infoX, scoresY);
-    const [tsr, tsg, tsb] = getGradeColor(video.titleScore.grade);
+    const [tsr, tsg, tsb] = getGradeColor(titleScore.grade);
     doc.setTextColor(tsr, tsg, tsb);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${video.titleScore.totalScore} (${video.titleScore.grade})`, infoX + 12, scoresY);
+    doc.text(`${titleScore.totalScore} (${titleScore.grade})`, infoX + 12, scoresY);
     
     // Thumbnail score
     doc.setTextColor(80, 80, 80);
     doc.setFont('helvetica', 'normal');
     doc.text('  |  Thumb: ', infoX + 30, scoresY);
-    const [ths, thsg, thsb] = getGradeColor(video.thumbnailScore.grade);
+    const [ths, thsg, thsb] = getGradeColor(thumbnailScore.grade);
     doc.setTextColor(ths, thsg, thsb);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${video.thumbnailScore.totalScore} (${video.thumbnailScore.grade})`, infoX + 52, scoresY);
+    doc.text(`${thumbnailScore.totalScore} (${thumbnailScore.grade})`, infoX + 52, scoresY);
 
     // Tags (top 5)
     if (video.tags && video.tags.length > 0) {
