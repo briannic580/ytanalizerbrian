@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { IconX, IconDownload } from '../constants/icons';
 
@@ -9,14 +9,54 @@ interface VideoDownloaderProps {
   onClose: () => void;
 }
 
+// External downloader services - all open in new tabs
+const DOWNLOADER_SERVICES = [
+  {
+    id: 'cobalt',
+    name: 'Cobalt Tools',
+    description: 'Clean, no ads, various formats',
+    emoji: '🌐',
+    recommended: true,
+    getUrl: (videoUrl: string) => `https://cobalt.tools/?url=${encodeURIComponent(videoUrl)}`,
+  },
+  {
+    id: 'y2mate',
+    name: 'Y2Mate',
+    description: 'Popular, many quality options',
+    emoji: '🎬',
+    recommended: false,
+    getUrl: (videoUrl: string) => {
+      const videoId = videoUrl.match(/(?:v=|\/)([\w-]{11})(?:\?|&|$)/)?.[1] || '';
+      return `https://www.y2mate.com/youtube/${videoId}`;
+    },
+  },
+  {
+    id: 'savefrom',
+    name: 'SaveFrom.net',
+    description: 'Multiple formats available',
+    emoji: '📥',
+    recommended: false,
+    getUrl: (videoUrl: string) => `https://en.savefrom.net/1-${encodeURIComponent(videoUrl)}`,
+  },
+  {
+    id: 'ssyoutube',
+    name: 'SSYouTube',
+    description: 'Fast & simple downloads',
+    emoji: '⚡',
+    recommended: false,
+    getUrl: (videoUrl: string) => {
+      const videoId = videoUrl.match(/(?:v=|\/)([\w-]{11})(?:\?|&|$)/)?.[1] || '';
+      return `https://ssyoutube.com/watch?v=${videoId}`;
+    },
+  },
+];
+
 const VideoDownloader: React.FC<VideoDownloaderProps> = ({
   videoUrl,
   videoTitle,
   isOpen,
   onClose
 }) => {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -27,9 +67,10 @@ const VideoDownloader: React.FC<VideoDownloaderProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Encode URL for the API
-  const encodedUrl = encodeURIComponent(videoUrl);
-  const iframeSrc = `https://p.savenow.to/api/card2/?url=${encodedUrl}`;
+  const openDownloader = (service: typeof DOWNLOADER_SERVICES[0]) => {
+    const url = service.getUrl(videoUrl);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   return (
     <AnimatePresence>
@@ -55,7 +96,7 @@ const VideoDownloader: React.FC<VideoDownloaderProps> = ({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            className="relative w-full max-w-xl bg-card rounded-3xl overflow-hidden shadow-2xl border border-border"
+            className="relative w-full max-w-md bg-card rounded-3xl overflow-hidden shadow-2xl border border-border"
           >
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-border">
@@ -65,7 +106,7 @@ const VideoDownloader: React.FC<VideoDownloaderProps> = ({
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-foreground">Download Video</h2>
-                  <p className="text-xs text-muted-foreground">Choose format and quality</p>
+                  <p className="text-xs text-muted-foreground">Choose a download service</p>
                 </div>
               </div>
               <motion.button
@@ -83,38 +124,48 @@ const VideoDownloader: React.FC<VideoDownloaderProps> = ({
               <p className="text-sm font-medium text-foreground line-clamp-2">{videoTitle}</p>
             </div>
 
-            {/* y2down.cc Card API iframe */}
-            <div className="relative" style={{ minHeight: '400px' }}>
-              <iframe
-                ref={iframeRef}
-                src={iframeSrc}
-                className="w-full border-none"
-                style={{ height: '400px' }}
-                scrolling="no"
-                allowFullScreen
-                title="Video Downloader"
-              />
+            {/* Downloader Services List */}
+            <div className="p-4 space-y-3">
+              <p className="text-xs text-muted-foreground mb-3">
+                Pilih salah satu layanan di bawah. Akan membuka di tab baru:
+              </p>
+              
+              {DOWNLOADER_SERVICES.map((service) => (
+                <motion.button
+                  key={service.id}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => openDownloader(service)}
+                  className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-all ${
+                    service.recommended 
+                      ? 'bg-primary/5 border-primary/30 hover:bg-primary/10' 
+                      : 'bg-secondary/50 border-border hover:bg-secondary'
+                  }`}
+                >
+                  <span className="text-2xl">{service.emoji}</span>
+                  <div className="flex-1 text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-foreground">{service.name}</span>
+                      {service.recommended && (
+                        <span className="text-[10px] font-bold bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
+                          RECOMMENDED
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{service.description}</p>
+                  </div>
+                  <svg className="w-5 h-5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </motion.button>
+              ))}
             </div>
 
             {/* Footer */}
             <div className="p-4 border-t border-border bg-secondary/30">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Powered by y2down.cc API</span>
-                <div className="flex items-center gap-4">
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    MP4
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                    MP3
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                    WAV
-                  </span>
-                </div>
-              </div>
+              <p className="text-xs text-muted-foreground text-center">
+                ⚠️ Download hanya untuk penggunaan pribadi. Hormati hak cipta.
+              </p>
             </div>
           </motion.div>
         </motion.div>

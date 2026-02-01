@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { VideoItem, ToastType } from '../types';
-import { IconCopy, IconDownload, IconBookmark } from '../constants/icons';
+import { IconCopy, IconDownload, IconBookmark, IconVideo } from '../constants/icons';
 import { Checkbox } from './ui/checkbox';
 
 interface AnimatedVideoCardProps {
@@ -59,6 +59,14 @@ const AnimatedVideoCard: React.FC<AnimatedVideoCardProps> = ({
     } catch (err) {
       onToast("Gagal mengunduh gambar", "error");
     }
+  };
+
+  // Open external video downloader (Cobalt)
+  const downloadVideo = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const videoUrl = `https://www.youtube.com/watch?v=${video.id}`;
+    const cobaltUrl = `https://cobalt.tools/?url=${encodeURIComponent(videoUrl)}`;
+    window.open(cobaltUrl, '_blank', 'noopener,noreferrer');
   };
 
   const getERStyles = (er: number) => {
@@ -188,22 +196,34 @@ const AnimatedVideoCard: React.FC<AnimatedVideoCardProps> = ({
             <span>{video.publishedTimeAgo}</span>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center gap-1.5 mt-3">
+          {/* Action Buttons - 3 buttons: Video | Thumb | Copy */}
+          <div className="flex items-center gap-1 mt-3">
+            <motion.button 
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={downloadVideo} 
+              className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20 rounded-lg text-[10px] font-bold hover:bg-violet-500/20 transition-colors"
+              title="Download Video (External)"
+            >
+              <IconVideo className="w-3 h-3" />
+              <span>Video</span>
+            </motion.button>
             <motion.button 
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={downloadThumb} 
               className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-primary/10 text-primary border border-primary/20 rounded-lg text-[10px] font-bold hover:bg-primary/20 transition-colors"
+              title="Download Thumbnail"
             >
               <IconDownload className="w-3 h-3" />
-              <span>Download</span>
+              <span>Thumb</span>
             </motion.button>
             <motion.button 
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={copyLink} 
               className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-[10px] font-bold hover:bg-accent transition-colors"
+              title="Copy Link"
             >
               <IconCopy className="w-3 h-3" />
               <span>Copy</span>
