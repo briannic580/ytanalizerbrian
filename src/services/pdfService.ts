@@ -9,9 +9,19 @@ import { calculateAllVideoScores, getAverageScores, VideoWithScores } from './pe
 interface ReportData {
   channelTitle: string;
   channelStats?: ChannelStats;
+  channelAvatar?: string;
   videos: VideoItem[];
   generatedAt: Date;
 }
+
+// Format date to specific format like "Jan 15, 2025"
+const formatSpecificDate = (date: Date): string => {
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+};
 
 // Fetch thumbnail as base64 for PDF embedding with timeout
 const fetchThumbnailAsBase64 = async (url: string, timeout = 5000): Promise<string | null> => {
@@ -127,6 +137,12 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
   const thumbnailMap = await fetchThumbnailsBatch(videosForPDF, 5);
   console.log(`Fetched ${thumbnailMap.size} thumbnails successfully`);
 
+  // Fetch channel avatar if available
+  let avatarBase64: string | null = null;
+  if (data.channelStats?.avatar) {
+    avatarBase64 = await fetchThumbnailAsBase64(data.channelStats.avatar, 5000);
+  }
+
   // Calculate statistics
   const totalViews = data.videos.reduce((sum, v) => sum + v.viewCountRaw, 0);
   const totalLikes = data.videos.reduce((sum, v) => sum + v.likeCountRaw, 0);
@@ -162,25 +178,63 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
   const videoCatalogPages = Math.ceil(videosForPDF.length / videosPerPage);
   const totalPages = 2 + videoCatalogPages; // Cover + Summary + Video pages
 
-  // ========== PAGE 1: COVER ==========
+  // ========== PAGE 1: COVER (AESTHETIC) ==========
   addHeader(doc, 'Channel Analysis Report', currentPage, totalPages);
   
-  // Big channel title
+  // Gradient-like background effect
+  doc.setFillColor(250, 250, 252);
+  doc.rect(0, 20, 210, 277, 'F');
+  
+  // Decorative accent bar
+  doc.setFillColor(239, 68, 68);
+  doc.rect(15, 35, 4, 60, 'F');
+  
+  // Channel avatar (circular effect)
+  if (avatarBase64) {
+    try {
+      // Draw avatar
+      doc.addImage(avatarBase64, 'JPEG', 25, 40, 35, 35);
+      // Add border effect
+      doc.setDrawColor(239, 68, 68);
+      doc.setLineWidth(1);
+      doc.circle(42.5, 57.5, 18, 'S');
+    } catch (e) {
+      // Fallback circle
+      doc.setFillColor(239, 68, 68);
+      doc.circle(42.5, 57.5, 17.5, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      const initials = (data.channelTitle || 'YT').substring(0, 2).toUpperCase();
+      doc.text(initials, 42.5, 62, { align: 'center' });
+    }
+  } else {
+    // Fallback circle with initials
+    doc.setFillColor(239, 68, 68);
+    doc.circle(42.5, 57.5, 17.5, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    const initials = (data.channelTitle || 'YT').substring(0, 2).toUpperCase();
+    doc.text(initials, 42.5, 62, { align: 'center' });
+  }
+  
+  // Channel name next to avatar
   doc.setTextColor(30, 30, 30);
-  doc.setFontSize(28);
+  doc.setFontSize(24);
   doc.setFont('helvetica', 'bold');
   const channelName = data.channelTitle || 'Channel Analysis';
-  doc.text(channelName.length > 35 ? channelName.substring(0, 35) + '...' : channelName, 105, 55, { align: 'center' });
+  doc.text(channelName.length > 25 ? channelName.substring(0, 25) + '...' : channelName, 70, 55);
   
-  // Subtitle
-  doc.setFontSize(12);
-  doc.setFont('helvetica', 'normal');
+  // YouTube Channel label
+  doc.setFontSize(10);
   doc.setTextColor(100, 100, 100);
-  doc.text('Comprehensive YouTube Analytics Report', 105, 65, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.text('YouTube Channel Analytics', 70, 65);
 
-  // Channel stats boxes
+  // Channel stats boxes - improved layout
+  currentY = 90;
   if (data.channelStats) {
-    currentY = 85;
     const boxWidth = 55;
     const stats = [
       { label: 'SUBSCRIBERS', value: data.channelStats.subscriberCount },
@@ -191,46 +245,62 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
     stats.forEach((stat, i) => {
       const x = 15 + (i * (boxWidth + 5));
       
-      doc.setFillColor(250, 250, 250);
-      doc.roundedRect(x, currentY, boxWidth, 35, 3, 3, 'F');
-      doc.setDrawColor(230, 230, 230);
-      doc.roundedRect(x, currentY, boxWidth, 35, 3, 3, 'S');
+      // Shadow effect
+      doc.setFillColor(230, 230, 230);
+      doc.roundedRect(x + 1, currentY + 1, boxWidth, 40, 4, 4, 'F');
+      
+      // White box
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(x, currentY, boxWidth, 40, 4, 4, 'F');
+      doc.setDrawColor(240, 240, 240);
+      doc.roundedRect(x, currentY, boxWidth, 40, 4, 4, 'S');
+      
+      // Red accent line
+      doc.setFillColor(239, 68, 68);
+      doc.rect(x, currentY, 4, 40, 'F');
       
       doc.setFontSize(8);
-      doc.setTextColor(100, 100, 100);
-      doc.text(stat.label, x + boxWidth/2, currentY + 10, { align: 'center' });
+      doc.setTextColor(120, 120, 120);
+      doc.text(stat.label, x + boxWidth/2 + 2, currentY + 12, { align: 'center' });
       
-      doc.setFontSize(16);
+      doc.setFontSize(18);
       doc.setTextColor(30, 30, 30);
       doc.setFont('helvetica', 'bold');
-      doc.text(stat.value, x + boxWidth/2, currentY + 24, { align: 'center' });
+      doc.text(stat.value, x + boxWidth/2 + 2, currentY + 28, { align: 'center' });
     });
-    currentY += 50;
-  } else {
-    currentY = 85;
+    currentY += 55;
   }
 
-  // Report info
-  doc.setFillColor(245, 245, 245);
-  doc.roundedRect(30, currentY, 150, 25, 3, 3, 'F');
+  // Report metadata box
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(30, currentY, 150, 50, 4, 4, 'F');
+  doc.setDrawColor(230, 230, 230);
+  doc.roundedRect(30, currentY, 150, 50, 4, 4, 'S');
   
+  doc.setFontSize(11);
+  doc.setTextColor(60, 60, 60);
+  doc.setFont('helvetica', 'bold');
+  doc.text('REPORT DETAILS', 105, currentY + 12, { align: 'center' });
+  
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(80, 80, 80);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Videos Analyzed: ${data.videos.length}`, 105, currentY + 10, { align: 'center' });
+  doc.text(`Videos Analyzed: ${data.videos.length}`, 105, currentY + 25, { align: 'center' });
+  doc.text(`Analysis Period: Last ${data.videos.length} videos`, 105, currentY + 35, { align: 'center' });
   doc.text(`Generated: ${data.generatedAt.toLocaleDateString('en-US', { 
     year: 'numeric', 
     month: 'long', 
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit'
-  })}`, 105, currentY + 18, { align: 'center' });
+  })}`, 105, currentY + 45, { align: 'center' });
 
-  // Report ID
+  // Report ID at bottom
   const reportId = `RPT-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}-${String(new Date().getHours()).padStart(2, '0')}${String(new Date().getMinutes()).padStart(2, '0')}`;
   doc.setFontSize(8);
   doc.setTextColor(150, 150, 150);
   doc.text(`Report ID: ${reportId}`, 105, 280, { align: 'center' });
+  doc.text('Generated by YT Analyzer Pro', 105, 286, { align: 'center' });
 
   // ========== PAGE 2: EXECUTIVE SUMMARY ==========
   doc.addPage();
@@ -238,93 +308,149 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
   addHeader(doc, 'Executive Summary', currentPage, totalPages);
   currentY = 30;
 
-  // Analysis Overview Section
+  // Analysis Overview Section - Card style
   currentY = addSection(doc, 'Analysis Overview', currentY);
   
+  // Create a nice grid of stats
   const overviewStats = [
-    { label: 'Videos Analyzed', value: data.videos.length.toString() },
-    { label: 'Total Views', value: formatNumber(totalViews) },
-    { label: 'Total Likes', value: formatNumber(totalLikes) },
-    { label: 'Total Comments', value: formatNumber(totalComments) },
-    { label: 'Average ER', value: `${avgER.toFixed(2)}%` },
-    { label: 'Outlier Videos', value: outliersCount.toString() },
+    { label: 'Videos Analyzed', value: data.videos.length.toString(), icon: '#' },
+    { label: 'Total Views', value: formatNumber(totalViews), icon: 'V' },
+    { label: 'Total Likes', value: formatNumber(totalLikes), icon: 'L' },
+    { label: 'Total Comments', value: formatNumber(totalComments), icon: 'C' },
+    { label: 'Average ER', value: `${avgER.toFixed(2)}%`, icon: '%' },
+    { label: 'Outlier Videos', value: outliersCount.toString(), icon: '!' },
   ];
 
   doc.setFont('helvetica', 'normal');
   overviewStats.forEach((stat, i) => {
     const row = Math.floor(i / 3);
     const col = i % 3;
-    const x = 20 + (col * 60);
-    const y = currentY + (row * 14);
+    const boxX = 15 + (col * 62);
+    const boxY = currentY + (row * 28);
     
+    // Card background
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(boxX, boxY, 58, 24, 3, 3, 'F');
+    doc.setDrawColor(235, 235, 235);
+    doc.roundedRect(boxX, boxY, 58, 24, 3, 3, 'S');
+    
+    // Icon circle
+    doc.setFillColor(239, 68, 68);
+    doc.circle(boxX + 10, boxY + 12, 6, 'F');
+    doc.setTextColor(255, 255, 255);
     doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.text(stat.icon, boxX + 10, boxY + 14, { align: 'center' });
+    
+    // Label and value
+    doc.setFontSize(7);
     doc.setTextColor(100, 100, 100);
-    doc.text(stat.label, x, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(stat.label, boxX + 20, boxY + 9);
     
     doc.setFontSize(12);
     doc.setTextColor(30, 30, 30);
     doc.setFont('helvetica', 'bold');
-    doc.text(stat.value, x, y + 7);
+    doc.text(stat.value, boxX + 20, boxY + 18);
     doc.setFont('helvetica', 'normal');
   });
-  currentY += 40;
+  currentY += 65;
 
-  // Content Breakdown Section
+  // Content Breakdown Section - Enhanced
   currentY = addSection(doc, 'Content Breakdown', currentY);
   
   const longPercent = data.videos.length > 0 ? (longCount / data.videos.length * 100).toFixed(0) : '0';
   const shortsPercent = data.videos.length > 0 ? (shortsCount / data.videos.length * 100).toFixed(0) : '0';
   
-  // Long videos bar
+  // Long videos bar with improved styling
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(15, currentY, 180, 30, 3, 3, 'F');
+  doc.setDrawColor(235, 235, 235);
+  doc.roundedRect(15, currentY, 180, 30, 3, 3, 'S');
+  
   doc.setFontSize(9);
   doc.setTextColor(60, 60, 60);
-  doc.text(`Long Videos: ${longCount} (${longPercent}%)`, 20, currentY + 5);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Long Videos`, 20, currentY + 9);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.text(`${longCount} videos (${longPercent}%)`, 20, currentY + 16);
+  
   doc.setFillColor(59, 130, 246);
-  const longBarWidth = Math.max((longCount / Math.max(data.videos.length, 1)) * 100, 2);
-  doc.roundedRect(90, currentY, longBarWidth, 6, 1, 1, 'F');
+  const longBarWidth = Math.max((longCount / Math.max(data.videos.length, 1)) * 80, 2);
+  doc.roundedRect(100, currentY + 8, longBarWidth, 10, 2, 2, 'F');
   
-  // Shorts bar
-  doc.text(`Shorts: ${shortsCount} (${shortsPercent}%)`, 20, currentY + 16);
+  doc.setFontSize(9);
+  doc.setTextColor(60, 60, 60);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Shorts`, 20, currentY + 25);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.text(`${shortsCount} videos (${shortsPercent}%)`, 50, currentY + 25);
+  
   doc.setFillColor(168, 85, 247);
-  const shortsBarWidth = Math.max((shortsCount / Math.max(data.videos.length, 1)) * 100, 2);
-  doc.roundedRect(90, currentY + 11, shortsBarWidth, 6, 1, 1, 'F');
+  const shortsBarWidth = Math.max((shortsCount / Math.max(data.videos.length, 1)) * 80, 2);
+  doc.roundedRect(100, currentY + 20, shortsBarWidth, 5, 2, 2, 'F');
   
-  currentY += 30;
+  currentY += 38;
 
-  // Performance Scores Section
+  // Performance Scores Section - Enhanced
   currentY = addSection(doc, 'Performance Scores', currentY);
   
   const titleGrade = getGrade(avgTitleScore);
   const thumbGrade = getGrade(avgThumbnailScore);
   
-  // Title Score box
-  doc.setFillColor(250, 250, 250);
-  doc.roundedRect(20, currentY, 80, 25, 3, 3, 'F');
+  // Title Score card
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(15, currentY, 85, 35, 4, 4, 'F');
+  doc.setDrawColor(235, 235, 235);
+  doc.roundedRect(15, currentY, 85, 35, 4, 4, 'S');
+  
+  // Colored accent
+  const [tr, tg, tb] = getGradeColor(titleGrade);
+  doc.setFillColor(tr, tg, tb);
+  doc.roundedRect(15, currentY, 4, 35, 2, 0, 'F');
+  
   doc.setFontSize(8);
   doc.setTextColor(100, 100, 100);
-  doc.text('AVG TITLE SCORE', 60, currentY + 7, { align: 'center' });
-  doc.setFontSize(16);
-  const [tr, tg, tb] = getGradeColor(titleGrade);
+  doc.text('AVG TITLE SCORE', 60, currentY + 10, { align: 'center' });
+  doc.setFontSize(18);
   doc.setTextColor(tr, tg, tb);
   doc.setFont('helvetica', 'bold');
-  doc.text(`${avgTitleScore}/100 (${titleGrade})`, 60, currentY + 19, { align: 'center' });
+  doc.text(`${avgTitleScore}/100`, 60, currentY + 24, { align: 'center' });
+  doc.setFontSize(12);
+  doc.text(`Grade: ${titleGrade}`, 60, currentY + 32, { align: 'center' });
   
-  // Thumbnail Score box
-  doc.setFillColor(250, 250, 250);
-  doc.roundedRect(110, currentY, 80, 25, 3, 3, 'F');
+  // Thumbnail Score card
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(110, currentY, 85, 35, 4, 4, 'F');
+  doc.setDrawColor(235, 235, 235);
+  doc.roundedRect(110, currentY, 85, 35, 4, 4, 'S');
+  
+  const [thr, thg, thb] = getGradeColor(thumbGrade);
+  doc.setFillColor(thr, thg, thb);
+  doc.roundedRect(110, currentY, 4, 35, 2, 0, 'F');
+  
   doc.setFontSize(8);
   doc.setTextColor(100, 100, 100);
-  doc.text('AVG THUMBNAIL SCORE', 150, currentY + 7, { align: 'center' });
-  doc.setFontSize(16);
-  const [thr, thg, thb] = getGradeColor(thumbGrade);
+  doc.text('AVG THUMBNAIL SCORE', 155, currentY + 10, { align: 'center' });
+  doc.setFontSize(18);
   doc.setTextColor(thr, thg, thb);
   doc.setFont('helvetica', 'bold');
-  doc.text(`${avgThumbnailScore}/100 (${thumbGrade})`, 150, currentY + 19, { align: 'center' });
+  doc.text(`${avgThumbnailScore}/100`, 155, currentY + 24, { align: 'center' });
+  doc.setFontSize(12);
+  doc.text(`Grade: ${thumbGrade}`, 155, currentY + 32, { align: 'center' });
   
-  currentY += 35;
+  currentY += 42;
 
-  // Engagement Rate Distribution Section
+  // Engagement Rate Distribution Section - Enhanced
   currentY = addSection(doc, 'Engagement Rate Distribution', currentY);
+  
+  // Container box
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(15, currentY, 180, 48, 3, 3, 'F');
+  doc.setDrawColor(235, 235, 235);
+  doc.roundedRect(15, currentY, 180, 48, 3, 3, 'S');
   
   const erRanges = [
     { label: '0-2% (Low)', count: erDistribution.low, color: [239, 68, 68] as [number, number, number] },
@@ -336,23 +462,27 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
   const maxERCount = Math.max(...erRanges.map(r => r.count), 1);
   
   erRanges.forEach((range, i) => {
-    const y = currentY + (i * 10);
-    const barWidth = Math.max((range.count / maxERCount) * 80, 2);
+    const y = currentY + 5 + (i * 11);
+    const barWidth = Math.max((range.count / maxERCount) * 90, 3);
     
+    // Label
     doc.setFontSize(8);
     doc.setTextColor(80, 80, 80);
-    doc.text(range.label, 20, y + 4);
+    doc.setFont('helvetica', 'normal');
+    doc.text(range.label, 22, y + 4);
     
+    // Bar
     doc.setFillColor(...range.color);
-    doc.roundedRect(70, y, barWidth, 5, 1, 1, 'F');
+    doc.roundedRect(75, y, barWidth, 6, 2, 2, 'F');
     
+    // Count
     doc.setTextColor(30, 30, 30);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${range.count}`, 75 + barWidth, y + 4);
+    doc.text(`${range.count}`, 80 + barWidth, y + 4);
     doc.setFont('helvetica', 'normal');
   });
 
-  currentY += 50;
+  currentY += 55;
 
   // Top Tags Section
   currentY = addSection(doc, 'Most Used Tags (Top 15)', currentY);
@@ -483,8 +613,9 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
     doc.setTextColor(80, 80, 80);
     doc.text(`Views: ${video.views}  |  Likes: ${video.likes}  |  Comments: ${video.comments || '0'}`, infoX, statsY);
     
-    // Stats row 2: ER, Duration, Published - Plain text labels (NO EMOJIS)
-    doc.text(`ER: ${video.engagementRate}%  |  Duration: ${video.durationFormatted}  |  Published: ${video.publishedTimeAgo}`, infoX, statsY + 5);
+    // Stats row 2: ER, Duration, Published with SPECIFIC DATE
+    const specificDate = formatSpecificDate(video.publishedAtDate);
+    doc.text(`ER: ${video.engagementRate}%  |  Duration: ${video.durationFormatted}  |  Published: ${specificDate}`, infoX, statsY + 5);
     
     // Scores row
     const scoresY = statsY + 10;
