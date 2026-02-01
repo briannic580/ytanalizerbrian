@@ -23,7 +23,9 @@ import {
   IconSun, 
   IconChart, 
   IconSettings,
-  IconMenu
+  IconMenu,
+  IconBookmark,
+  IconClose
 } from '../constants/icons';
 import Toast from '../components/Toast';
 import AnimatedVideoCard from '../components/AnimatedVideoCard';
@@ -35,10 +37,18 @@ import BottomNav from '../components/BottomNav';
 import VideoPreviewModal from '../components/VideoPreviewModal';
 import InsightsDashboard from '../components/InsightsDashboard';
 import CompetitorBenchmark from '../components/CompetitorBenchmark';
+import ContentGapAnalyzer from '../components/ContentGapAnalyzer';
+import UploadScheduleAnalyzer from '../components/UploadScheduleAnalyzer';
+import TitleScoreAnalyzer from '../components/TitleScoreAnalyzer';
+import SearchHistoryPage from '../components/SearchHistoryPage';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { fetchYouTubeData, fetchTrendingVideos, getQuotaUsage } from '../services/youtubeService';
 import { generateCSV, exportToExcel } from '../services/exportService';
 import { generateZip } from '../services/zipService';
+import { generatePDFReport } from '../services/pdfService';
+import { Input } from '../components/ui/input';
+import { Slider } from '../components/ui/slider';
+import { Checkbox } from '../components/ui/checkbox';
 
 // Available Country Codes for Trending
 const TRENDING_REGIONS: TrendingRegion[] = [
@@ -57,6 +67,9 @@ const TRENDING_REGIONS: TrendingRegion[] = [
 ];
 
 const QUOTA_LIMIT = 10000;
+
+// Date range filter type
+type DateRangeFilter = 'all' | '7d' | '30d' | '90d' | '1y';
 
 const YouTubeAnalyzer: React.FC = () => {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('yt_dark_mode') === 'true');
@@ -88,6 +101,15 @@ const YouTubeAnalyzer: React.FC = () => {
   // Video Preview Modal State
   const [previewVideo, setPreviewVideo] = useState<VideoItem | null>(null);
   const [previewIndex, setPreviewIndex] = useState<number>(0);
+
+  // Batch Operations State
+  const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
+  const [isSelectMode, setIsSelectMode] = useState(false);
+
+  // Advanced Filtering State
+  const [dateRange, setDateRange] = useState<DateRangeFilter>('all');
+  const [minER, setMinER] = useState(0);
+  const [titleKeyword, setTitleKeyword] = useState('');
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -221,7 +243,26 @@ const YouTubeAnalyzer: React.FC = () => {
       if (contentType === 'shorts') matchType = v.isShort;
       if (contentType === 'long') matchType = !v.isShort;
 
-      return matchViews && matchLikes && matchDuration && matchType;
+      // Advanced filters - Date Range
+      let matchDate = true;
+      if (dateRange !== 'all') {
+        const now = new Date();
+        const videoDate = new Date(v.publishedAt);
+        const daysDiff = Math.floor((now.getTime() - videoDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (dateRange === '7d') matchDate = daysDiff <= 7;
+        else if (dateRange === '30d') matchDate = daysDiff <= 30;
+        else if (dateRange === '90d') matchDate = daysDiff <= 90;
+        else if (dateRange === '1y') matchDate = daysDiff <= 365;
+      }
+
+      // Advanced filters - Min ER
+      const matchER = v.engagementRate >= minER;
+
+      // Advanced filters - Title Keyword
+      const matchKeyword = titleKeyword.trim() === '' || 
+        v.title.toLowerCase().includes(titleKeyword.toLowerCase());
+
+      return matchViews && matchLikes && matchDuration && matchType && matchDate && matchER && matchKeyword;
     });
 
     return [...result].sort((a, b) => {
@@ -232,7 +273,94 @@ const YouTubeAnalyzer: React.FC = () => {
       if (sortOption === 'oldest') return new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime();
       return 0;
     });
-  }, [data, savedVideos, mode, contentType, minViews, minLikes, durationRange, sortOption]);
+  }, [data, savedVideos, mode, contentType, minViews, minLikes, durationRange, sortOption, dateRange, minER, titleKeyword]);
+
+  // Batch selection handlers
+  const handleSelectVideo = useCallback((videoId: string) => {
+    setSelectedVideos(prev => {
+      const next = new Set(prev);
+      if (next.has(videoId)) {
+        next.delete(videoId);
+      } else {
+        next.add(videoId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    if (selectedVideos.size === filteredVideos.length) {
+      setSelectedVideos(new Set());
+    } else {
+      setSelectedVideos(new Set(filteredVideos.map(v => v.id)));
+    }
+  }, [filteredVideos, selectedVideos.size]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedVideos(new Set());
+    setIsSelectMode(false);
+  }, []);
+
+  const handleBatchSave = useCallback(() => {
+    const videosToSave = filteredVideos.filter(v => selectedVideos.has(v.id));
+    const existing = new Set(savedVideos.map(sv => sv.id));
+    const newVideos = videosToSave.filter(v => !existing.has(v.id));
+    const updated = [...newVideos, ...savedVideos];
+    setSavedVideos(updated);
+    localStorage.setItem('yt_saved_videos', JSON.stringify(updated));
+    showToast(`${newVideos.length} video berhasil disimpan`, "success");
+    clearSelection();
+  }, [filteredVideos, selectedVideos, savedVideos, clearSelection]);
+
+  const handleBatchCopyLinks = useCallback(() => {
+    const selectedList = filteredVideos.filter(v => selectedVideos.has(v.id));
+    const links = selectedList.map(v => `https://www.youtube.com/watch?v=${v.id}`).join('\n');
+    navigator.clipboard.writeText(links).then(() => {
+      showToast(`${selectedList.length} link tersalin`, "success");
+    });
+  }, [filteredVideos, selectedVideos]);
+
+  const handleBatchDownloadThumbnails = useCallback(async () => {
+    const selectedList = filteredVideos.filter(v => selectedVideos.has(v.id));
+    try {
+      showToast(`Menyiapkan ${selectedList.length} thumbnail...`, "loading");
+      await generateZip(selectedList, "Selected_Thumbnails", (p) => setZipProgress(p));
+      showToast("Download ZIP dimulai", "success");
+    } catch (e) {
+      showToast("Gagal mendownload ZIP", "error");
+    } finally {
+      setZipProgress(0);
+    }
+  }, [filteredVideos, selectedVideos]);
+
+  const handleBatchExportCSV = useCallback(() => {
+    const selectedList = filteredVideos.filter(v => selectedVideos.has(v.id));
+    generateCSV(selectedList, "Selected_Videos");
+    showToast(`${selectedList.length} video diekspor ke CSV`, "success");
+  }, [filteredVideos, selectedVideos]);
+
+  // PDF Export handler
+  const handleExportPDF = useCallback(async () => {
+    if (!data) return;
+    showToast("Membuat PDF report...", "loading");
+    try {
+      await generatePDFReport({
+        channelTitle: data.channelTitle || 'YouTube Analysis',
+        channelStats: data.channelStats,
+        videos: data.videos,
+        generatedAt: new Date()
+      });
+      showToast("PDF berhasil dibuat", "success");
+    } catch (e) {
+      showToast("Gagal membuat PDF", "error");
+    }
+  }, [data]);
+
+  // Search History replay handler  
+  const handleSearchFromHistory = useCallback((searchQuery: string) => {
+    setQuery(searchQuery);
+    handleAnalyze(searchQuery);
+  }, []);
 
   // Video Preview handlers
   const handleVideoPreview = useCallback((video: VideoItem) => {
@@ -489,7 +617,7 @@ const YouTubeAnalyzer: React.FC = () => {
                 transition={{ duration: 0.3 }}
                 className="overflow-hidden"
               >
-                <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Fetch Limit</label>
                     <select
@@ -544,6 +672,72 @@ const YouTubeAnalyzer: React.FC = () => {
                       <option value="over_20">&gt; 20 Menit</option>
                     </select>
                   </div>
+                  {/* Advanced Filter: Date Range */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Date Range</label>
+                    <select 
+                      value={dateRange} 
+                      onChange={(e) => setDateRange(e.target.value as DateRangeFilter)} 
+                      className="bg-secondary border border-border rounded-xl px-3 py-2 text-xs font-bold"
+                    >
+                      <option value="all">Semua Waktu</option>
+                      <option value="7d">7 Hari Terakhir</option>
+                      <option value="30d">30 Hari Terakhir</option>
+                      <option value="90d">90 Hari Terakhir</option>
+                      <option value="1y">1 Tahun Terakhir</option>
+                    </select>
+                  </div>
+                  {/* Advanced Filter: Min ER */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Min ER%: {minER}%</label>
+                    <Slider 
+                      value={[minER]} 
+                      onValueChange={(val) => setMinER(val[0])} 
+                      max={20} 
+                      step={0.5}
+                      className="mt-2"
+                    />
+                  </div>
+                </div>
+                {/* Advanced Filter: Title Keyword */}
+                <div className="mt-4 flex flex-col md:flex-row gap-4">
+                  <div className="flex-1 flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Title Keyword</label>
+                    <Input 
+                      value={titleKeyword} 
+                      onChange={(e) => setTitleKeyword(e.target.value)} 
+                      placeholder="Filter berdasarkan kata di judul..."
+                      className="bg-secondary border-border rounded-xl text-xs"
+                    />
+                  </div>
+                  {/* Batch Select Toggle */}
+                  <div className="flex items-end gap-2">
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        setIsSelectMode(!isSelectMode);
+                        if (isSelectMode) setSelectedVideos(new Set());
+                      }}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
+                        isSelectMode 
+                          ? 'bg-primary text-primary-foreground border-primary' 
+                          : 'bg-card border-border text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {isSelectMode ? 'Cancel Select' : 'Multi-Select'}
+                    </motion.button>
+                    {data && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleExportPDF}
+                        className="px-4 py-2 rounded-xl text-xs font-bold border bg-destructive/10 border-destructive/20 text-destructive hover:bg-destructive/20 transition-all"
+                      >
+                        Export PDF
+                      </motion.button>
+                    )}
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -579,8 +773,48 @@ const YouTubeAnalyzer: React.FC = () => {
                       Silakan analyze konten terlebih dahulu.
                     </div>
                   )
+                ) : mode === 'content_gap' ? (
+                  data?.videos?.length ? (
+                    <ContentGapAnalyzer 
+                      channelVideos={data.videos} 
+                      apiKey={apiKey}
+                      onToast={showToast}
+                    />
+                  ) : (
+                    <div className="text-center py-20 text-muted-foreground font-medium italic">
+                      Silakan analyze konten terlebih dahulu untuk Content Gap Analysis.
+                    </div>
+                  )
+                ) : mode === 'schedule' ? (
+                  data?.videos?.length ? <UploadScheduleAnalyzer videos={data.videos} /> : (
+                    <div className="text-center py-20 text-muted-foreground font-medium italic">
+                      Silakan analyze konten terlebih dahulu untuk Upload Schedule Analysis.
+                    </div>
+                  )
+                ) : mode === 'title_score' ? (
+                  data?.videos?.length ? <TitleScoreAnalyzer videos={data.videos} /> : (
+                    <div className="text-center py-20 text-muted-foreground font-medium italic">
+                      Silakan analyze konten terlebih dahulu untuk Title Score Analysis.
+                    </div>
+                  )
+                ) : mode === 'history' ? (
+                  <SearchHistoryPage onSearch={handleSearchFromHistory} onToast={showToast} />
                 ) : (
                   <>
+                    {/* Select All Checkbox when in Select Mode */}
+                    {isSelectMode && filteredVideos.length > 0 && (
+                      <div className="flex items-center gap-3 mb-4 p-3 bg-secondary/50 rounded-xl">
+                        <Checkbox 
+                          checked={selectedVideos.size === filteredVideos.length}
+                          onCheckedChange={handleSelectAll}
+                        />
+                        <span className="text-sm font-medium text-foreground">
+                          {selectedVideos.size === filteredVideos.length ? 'Deselect All' : 'Select All'} 
+                          ({selectedVideos.size}/{filteredVideos.length})
+                        </span>
+                      </div>
+                    )}
+
                     {filteredVideos.length === 0 && !loading && (
                       <motion.div 
                         initial={{ opacity: 0 }}
@@ -607,6 +841,9 @@ const YouTubeAnalyzer: React.FC = () => {
                           isSaved={savedVideos.some(sv => sv.id === v.id)}
                           onSaveToggle={handleSaveToggle}
                           onPreview={handleVideoPreview}
+                          showCheckbox={isSelectMode}
+                          isSelected={selectedVideos.has(v.id)}
+                          onSelect={handleSelectVideo}
                         />
                       ))}
                     </div>
@@ -631,6 +868,73 @@ const YouTubeAnalyzer: React.FC = () => {
         }}
         onFetchTrending={() => handleTrending()}
       />
+
+      {/* Selection Toolbar - Fixed at bottom when selecting */}
+      <AnimatePresence>
+        {isSelectMode && selectedVideos.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 100 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 100 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[200] bg-card border border-border rounded-2xl shadow-premium-lg p-4 flex items-center gap-4"
+          >
+            <div className="flex items-center gap-2 pr-4 border-r border-border">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                <span className="text-sm font-bold text-primary">{selectedVideos.size}</span>
+              </div>
+              <span className="text-sm font-medium text-foreground">Selected</span>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleBatchSave}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold"
+              >
+                <IconBookmark className="w-4 h-4" />
+                Save All
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleBatchExportCSV}
+                className="flex items-center gap-2 px-4 py-2 bg-secondary text-foreground rounded-xl text-xs font-bold border border-border"
+              >
+                <IconDescription className="w-4 h-4" />
+                CSV
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleBatchCopyLinks}
+                className="flex items-center gap-2 px-4 py-2 bg-secondary text-foreground rounded-xl text-xs font-bold border border-border"
+              >
+                <IconCopy className="w-4 h-4" />
+                Copy
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleBatchDownloadThumbnails}
+                className="flex items-center gap-2 px-4 py-2 bg-secondary text-foreground rounded-xl text-xs font-bold border border-border"
+              >
+                <IconDownload className="w-4 h-4" />
+                ZIP
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={clearSelection}
+                className="p-2 text-muted-foreground hover:text-foreground rounded-xl hover:bg-accent"
+              >
+                <IconClose className="w-4 h-4" />
+              </motion.button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Video Preview Modal */}
       <VideoPreviewModal
