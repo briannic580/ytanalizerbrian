@@ -1,28 +1,90 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { IconDownload, IconTV } from '../constants/icons';
 
+// External downloader services
+const DOWNLOADER_SERVICES = [
+  {
+    id: 'cobalt',
+    name: 'Cobalt',
+    description: 'Clean & no ads',
+    emoji: '🌐',
+    recommended: true,
+    getUrl: (videoUrl: string) => `https://cobalt.tools/?url=${encodeURIComponent(videoUrl)}`,
+  },
+  {
+    id: 'y2mate',
+    name: 'Y2Mate',
+    description: 'Many quality options',
+    emoji: '🎬',
+    recommended: false,
+    getUrl: (videoUrl: string) => {
+      const videoId = videoUrl.match(/(?:v=|\/)([\w-]{11})(?:\?|&|$)/)?.[1] || '';
+      return videoId ? `https://www.y2mate.com/youtube/${videoId}` : 'https://www.y2mate.com';
+    },
+  },
+  {
+    id: 'savefrom',
+    name: 'SaveFrom',
+    description: 'Multiple formats',
+    emoji: '📥',
+    recommended: false,
+    getUrl: (videoUrl: string) => `https://en.savefrom.net/1-${encodeURIComponent(videoUrl)}`,
+  },
+  {
+    id: 'ssyoutube',
+    name: 'SSYouTube',
+    description: 'Fast & simple',
+    emoji: '⚡',
+    recommended: false,
+    getUrl: (videoUrl: string) => {
+      const videoId = videoUrl.match(/(?:v=|\/)([\w-]{11})(?:\?|&|$)/)?.[1] || '';
+      return videoId ? `https://ssyoutube.com/watch?v=${videoId}` : 'https://ssyoutube.com';
+    },
+  },
+];
+
+const SUPPORTED_PLATFORMS = [
+  { name: 'YouTube', icon: '📺' },
+  { name: 'YouTube Shorts', icon: '📱' },
+  { name: 'YouTube Playlist', icon: '📋' },
+  { name: 'TikTok', icon: '🎵' },
+  { name: 'Instagram Reels', icon: '📸' },
+  { name: 'Twitter/X', icon: '🐦' },
+];
+
 const DownloaderPage: React.FC = () => {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [selectedService, setSelectedService] = useState('cobalt');
 
-  useEffect(() => {
-    // Load iframe-resizer library dynamically
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/iframe-resizer/4.3.9/iframeResizer.min.js';
-    script.async = true;
-    script.onload = () => {
-      if ((window as any).iFrameResize && iframeRef.current) {
-        (window as any).iFrameResize({ log: false }, iframeRef.current);
-      }
-    };
-    document.head.appendChild(script);
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      setVideoUrl(text);
+    } catch (err) {
+      console.error('Failed to read clipboard');
+    }
+  };
 
-    return () => {
-      if (document.head.contains(script)) {
-        document.head.removeChild(script);
-      }
-    };
-  }, []);
+  const handleDownload = () => {
+    if (!videoUrl.trim()) return;
+    const service = DOWNLOADER_SERVICES.find(s => s.id === selectedService);
+    if (service) {
+      const url = service.getUrl(videoUrl);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const openService = (serviceId: string) => {
+    const service = DOWNLOADER_SERVICES.find(s => s.id === serviceId);
+    if (service && videoUrl.trim()) {
+      const url = service.getUrl(videoUrl);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else if (service) {
+      // Open service homepage if no URL
+      window.open(service.getUrl(''), '_blank', 'noopener,noreferrer');
+    }
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -30,10 +92,10 @@ const DownloaderPage: React.FC = () => {
       <div>
         <h2 className="text-2xl font-black text-foreground tracking-tight flex items-center gap-3">
           <IconDownload className="w-6 h-6 text-primary" />
-          YouTube Video Downloader
+          Video Downloader
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Download YouTube videos in various formats: MP4, MP3, WAV, and more
+          Download video dari YouTube, TikTok, Instagram, dan lainnya
         </p>
       </div>
 
@@ -91,7 +153,7 @@ const DownloaderPage: React.FC = () => {
         </motion.div>
       </div>
 
-      {/* Main Widget */}
+      {/* Main Input Section */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -102,23 +164,108 @@ const DownloaderPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <IconTV className="w-5 h-5 text-primary" />
             <div>
-              <h3 className="text-sm font-bold text-foreground">Paste YouTube URL</h3>
-              <p className="text-xs text-muted-foreground">Enter any YouTube video or playlist URL to download</p>
+              <h3 className="text-sm font-bold text-foreground">Paste Video URL</h3>
+              <p className="text-xs text-muted-foreground">Masukkan URL video yang ingin didownload</p>
             </div>
           </div>
         </div>
 
-        <div className="p-4" style={{ minHeight: '500px' }}>
-          <iframe
-            ref={iframeRef}
-            id="widgetApiIframe"
-            src="https://p.savenow.to/api/widget"
-            className="w-full border-none rounded-xl"
-            style={{ minHeight: '500px' }}
-            scrolling="no"
-            allowFullScreen
-            title="YouTube Downloader Widget"
-          />
+        <div className="p-4 space-y-4">
+          {/* URL Input */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              placeholder="https://www.youtube.com/watch?v=..."
+              className="flex-1 px-4 py-3 bg-secondary border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handlePaste}
+              className="px-4 py-3 bg-secondary hover:bg-accent border border-border rounded-xl text-sm font-bold text-foreground transition-colors"
+            >
+              📋 Paste
+            </motion.button>
+          </div>
+
+          {/* Service Selector */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {DOWNLOADER_SERVICES.map((service) => (
+              <motion.button
+                key={service.id}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setSelectedService(service.id)}
+                className={`p-3 rounded-xl border transition-all text-left ${
+                  selectedService === service.id
+                    ? 'bg-primary/10 border-primary/30'
+                    : 'bg-secondary/50 border-border hover:bg-secondary'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-lg">{service.emoji}</span>
+                  <span className="text-sm font-bold text-foreground">{service.name}</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground">{service.description}</p>
+                {service.recommended && (
+                  <span className="inline-block mt-1 text-[9px] font-bold bg-primary text-primary-foreground px-1.5 py-0.5 rounded">
+                    BEST
+                  </span>
+                )}
+              </motion.button>
+            ))}
+          </div>
+
+          {/* Download Button */}
+          <motion.button
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
+            onClick={handleDownload}
+            disabled={!videoUrl.trim()}
+            className={`w-full py-4 rounded-xl font-bold text-lg transition-all ${
+              videoUrl.trim()
+                ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg'
+                : 'bg-secondary text-muted-foreground cursor-not-allowed'
+            }`}
+          >
+            <span className="flex items-center justify-center gap-2">
+              <IconDownload className="w-5 h-5" />
+              Download Video
+            </span>
+          </motion.button>
+        </div>
+      </motion.div>
+
+      {/* Quick Access Buttons */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        className="bg-card border border-border rounded-2xl p-4"
+      >
+        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4">
+          Buka Langsung ke Layanan
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {DOWNLOADER_SERVICES.map((service) => (
+            <motion.button
+              key={service.id}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => openService(service.id)}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-secondary hover:bg-accent rounded-xl transition-colors"
+            >
+              <span>{service.emoji}</span>
+              <span className="text-sm font-bold text-foreground">{service.name}</span>
+              <svg className="w-4 h-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
+            </motion.button>
+          ))}
         </div>
       </motion.div>
 
@@ -126,21 +273,14 @@ const DownloaderPage: React.FC = () => {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
+        transition={{ delay: 0.6 }}
         className="bg-card border border-border rounded-2xl p-6"
       >
         <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4">
           Supported Platforms
         </h3>
         <div className="flex flex-wrap gap-3">
-          {[
-            { name: 'YouTube', icon: '📺' },
-            { name: 'YouTube Shorts', icon: '📱' },
-            { name: 'YouTube Playlist', icon: '📋' },
-            { name: 'TikTok', icon: '🎵' },
-            { name: 'Instagram Reels', icon: '📸' },
-            { name: 'Instagram Video', icon: '🎥' },
-          ].map((platform) => (
+          {SUPPORTED_PLATFORMS.map((platform) => (
             <div
               key={platform.name}
               className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-xl"
@@ -155,9 +295,9 @@ const DownloaderPage: React.FC = () => {
       {/* Disclaimer */}
       <div className="p-4 bg-secondary/50 rounded-xl text-center">
         <p className="text-xs text-muted-foreground">
-          ⚠️ This tool is for personal use only. Please respect copyright laws and content creators' rights.
+          ⚠️ Download hanya untuk penggunaan pribadi. Hormati hak cipta dan hak content creator.
           <br />
-          Powered by y2down.cc API
+          Layanan download disediakan oleh pihak ketiga.
         </p>
       </div>
     </div>
