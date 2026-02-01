@@ -1,4 +1,5 @@
 // PDF Report Generator Service - Comprehensive reports with ALL data & thumbnails
+// NOTE: jsPDF does not support Unicode emojis, so we use plain text labels instead
 
 import jsPDF from 'jspdf';
 import { VideoItem, ChannelStats } from '../types';
@@ -182,9 +183,9 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
     currentY = 85;
     const boxWidth = 55;
     const stats = [
-      { label: 'SUBSCRIBERS', value: data.channelStats.subscriberCount, icon: '👥' },
-      { label: 'TOTAL VIEWS', value: data.channelStats.viewCount, icon: '👁️' },
-      { label: 'VIDEOS', value: data.channelStats.videoCount, icon: '🎬' },
+      { label: 'SUBSCRIBERS', value: data.channelStats.subscriberCount },
+      { label: 'TOTAL VIEWS', value: data.channelStats.viewCount },
+      { label: 'VIDEOS', value: data.channelStats.videoCount },
     ];
 
     stats.forEach((stat, i) => {
@@ -392,7 +393,7 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
     const thumbnailBase64 = thumbnailMap.get(video.id);
     
     // Video entry box
-    const entryHeight = 45;
+    const entryHeight = 48;
     
     if (currentY + entryHeight > 275) {
       doc.addPage();
@@ -434,7 +435,7 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
       doc.text('NO IMAGE', thumbX + thumbW/2, thumbY + thumbH/2, { align: 'center' });
     }
 
-    // Badges (SHORT, OUTLIER)
+    // Badges (SHORT, OUTLIER) - Using plain text, no emojis
     let badgeX = thumbX;
     if (video.isShort) {
       doc.setFillColor(168, 85, 247);
@@ -446,10 +447,10 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
     }
     if (video.isOutlier) {
       doc.setFillColor(249, 115, 22);
-      doc.roundedRect(badgeX, thumbY + thumbH + 1, 20, 5, 1, 1, 'F');
+      doc.roundedRect(badgeX, thumbY + thumbH + 1, 18, 5, 1, 1, 'F');
       doc.setFontSize(5);
       doc.setTextColor(255, 255, 255);
-      doc.text('🔥 OUTLIER', badgeX + 10, thumbY + thumbH + 4.5, { align: 'center' });
+      doc.text('OUTLIER', badgeX + 9, thumbY + thumbH + 4.5, { align: 'center' });
     }
 
     // Video info - right side
@@ -468,15 +469,15 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
     const titleLines = doc.splitTextToSize(title, 110);
     doc.text(titleLines.slice(0, 2), infoX, currentY + 7);
     
-    // Stats row 1: Views, Likes, Comments
+    // Stats row 1: Views, Likes, Comments - Plain text labels (NO EMOJIS)
     const statsY = currentY + (titleLines.length > 1 ? 18 : 14);
     doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(80, 80, 80);
-    doc.text(`👁️ ${video.views}  ❤️ ${video.likes}  💬 ${video.comments || '0'}`, infoX, statsY);
+    doc.text(`Views: ${video.views}  |  Likes: ${video.likes}  |  Comments: ${video.comments || '0'}`, infoX, statsY);
     
-    // Stats row 2: ER, Duration, Published
-    doc.text(`📊 ER: ${video.engagementRate}%  ⏱️ ${video.durationFormatted}  📅 ${video.publishedTimeAgo}`, infoX, statsY + 6);
+    // Stats row 2: ER, Duration, Published - Plain text labels (NO EMOJIS)
+    doc.text(`ER: ${video.engagementRate}%  |  Duration: ${video.durationFormatted}  |  Published: ${video.publishedTimeAgo}`, infoX, statsY + 6);
     
     // Scores row
     const scoresY = statsY + 12;
@@ -509,7 +510,7 @@ export const generatePDFReport = async (data: ReportData): Promise<void> => {
       doc.text(`Tags: ${truncatedTags}`, infoX, scoresY + 6);
     }
 
-    currentY += entryHeight + 3;
+    currentY += entryHeight + 2;
   }
 
   // ========== FINAL PAGE: FOOTER ==========
