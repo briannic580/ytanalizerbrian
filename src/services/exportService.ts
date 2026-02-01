@@ -1,4 +1,5 @@
 import { VideoItem } from '../types';
+import { calculateAllVideoScores, VideoWithScores } from './performanceScoreService';
 
 export const generateCSV = (videos: VideoItem[], filename: string) => {
   // CSV Header
@@ -57,6 +58,92 @@ export const generateCSV = (videos: VideoItem[], filename: string) => {
   }
 };
 
+// Comprehensive CSV with all data including scores
+export const generateFullAnalysisCSV = (videos: VideoItem[], filename: string) => {
+  // Calculate scores for all videos
+  const scoredVideos = calculateAllVideoScores(videos);
+  
+  // CSV Header - 25 columns
+  const headers = [
+    "No",
+    "Title",
+    "Video ID",
+    "Video URL",
+    "Thumbnail URL",
+    "Channel Name",
+    "Channel ID",
+    "Duration (Formatted)",
+    "Duration (Seconds)",
+    "Published Date",
+    "Published Time Ago",
+    "Views (Raw)",
+    "Views (Formatted)",
+    "Likes (Raw)",
+    "Likes (Formatted)",
+    "Comments (Raw)",
+    "Comments (Formatted)",
+    "Engagement Rate %",
+    "Title Score",
+    "Title Grade",
+    "Thumbnail Score",
+    "Thumbnail Grade",
+    "Tags",
+    "Is Short",
+    "Is Outlier"
+  ];
+
+  // CSV Rows
+  const rows = scoredVideos.map((v: VideoWithScores, index: number) => {
+    // Escape quotes in text fields
+    const safeTitle = `"${v.title.replace(/"/g, '""')}"`;
+    const safeTags = `"${v.tags.join(', ').replace(/"/g, '""')}"`;
+
+    return [
+      index + 1,
+      safeTitle,
+      v.id,
+      `https://www.youtube.com/watch?v=${v.id}`,
+      v.thumbnail,
+      `"${v.channelTitle.replace(/"/g, '""')}"`,
+      v.channelId,
+      v.durationFormatted,
+      v.durationSec,
+      new Date(v.publishedAtDate).toISOString().split('T')[0],
+      v.publishedTimeAgo,
+      v.viewCountRaw,
+      v.views,
+      v.likeCountRaw,
+      v.likes,
+      v.commentCountRaw,
+      v.comments,
+      v.engagementRate.toFixed(2),
+      v.titleScore.totalScore,
+      v.titleScore.grade,
+      v.thumbnailScore.totalScore,
+      v.thumbnailScore.grade,
+      safeTags,
+      v.isShort ? "Yes" : "No",
+      v.isOutlier ? "Yes" : "No"
+    ].join(",");
+  });
+
+  const csvContent = [headers.join(","), ...rows].join("\n");
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+
+  const saveAs = window.saveAs;
+  if (saveAs) {
+    saveAs(blob, `${filename}_Full_Analysis.csv`);
+  } else {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${filename}_Full_Analysis.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+};
+
 export const exportToExcel = (videos: VideoItem[], filename: string) => {
   const XLSX = window.XLSX;
   if (!XLSX) {
@@ -64,18 +151,27 @@ export const exportToExcel = (videos: VideoItem[], filename: string) => {
     return;
   }
 
-  const data = videos.map((v, idx) => ({
+  // Calculate scores
+  const scoredVideos = calculateAllVideoScores(videos);
+
+  const data = scoredVideos.map((v: VideoWithScores, idx: number) => ({
     "No": idx + 1,
     "Title": v.title,
     "URL": `https://www.youtube.com/watch?v=${v.id}`,
+    "Thumbnail": v.thumbnail,
     "Views": v.viewCountRaw,
     "Likes": v.likeCountRaw,
     "Comments": v.commentCountRaw,
     "Engagement Rate %": v.engagementRate,
+    "Title Score": v.titleScore.totalScore,
+    "Title Grade": v.titleScore.grade,
+    "Thumbnail Score": v.thumbnailScore.totalScore,
+    "Thumbnail Grade": v.thumbnailScore.grade,
     "Duration": v.durationFormatted,
     "Published": new Date(v.publishedAtDate).toLocaleDateString(),
     "Type": v.isShort ? "Shorts" : "Long",
-    "Channel": v.channelTitle
+    "Channel": v.channelTitle,
+    "Tags": v.tags.join(', ')
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(data);
