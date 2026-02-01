@@ -78,6 +78,26 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, onFetchTre
           onClick={() => onModeChange('content_gap')} 
         />
         <Row 
+          icon={<IconHistory />} 
+          label="Upload Schedule" 
+          active={currentMode === 'schedule'} 
+          onClick={() => onModeChange('schedule')} 
+        />
+        <Row 
+          icon={<IconChart />} 
+          label="Title Score" 
+          active={currentMode === 'title_score'} 
+          onClick={() => onModeChange('title_score')} 
+        />
+      </div>
+
+      <div className="my-6 border-t border-border/50" />
+
+      <div className="space-y-1">
+        <div className="px-4 mb-2 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+          Library
+        </div>
+        <Row 
           icon={<IconUser />} 
           label="Saved Content" 
           active={currentMode === 'saved'} 

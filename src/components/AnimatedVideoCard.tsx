@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { VideoItem, ToastType } from '../types';
 import { IconCopy, IconDownload, IconBookmark } from '../constants/icons';
+import { Checkbox } from './ui/checkbox';
 
 interface AnimatedVideoCardProps {
   video: VideoItem;
@@ -10,6 +11,9 @@ interface AnimatedVideoCardProps {
   onSaveToggle?: (video: VideoItem) => void;
   isSaved?: boolean;
   onPreview?: (video: VideoItem) => void;
+  showCheckbox?: boolean;
+  isSelected?: boolean;
+  onSelect?: (videoId: string) => void;
 }
 
 const stringToColor = (str: string) => {
@@ -27,7 +31,10 @@ const AnimatedVideoCard: React.FC<AnimatedVideoCardProps> = ({
   onToast, 
   onSaveToggle, 
   isSaved,
-  onPreview 
+  onPreview,
+  showCheckbox = false,
+  isSelected = false,
+  onSelect
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -73,17 +80,47 @@ const AnimatedVideoCard: React.FC<AnimatedVideoCardProps> = ({
         damping: 30 
       }}
       whileHover={{ y: -4 }}
-      className={`flex flex-col gap-3 group bg-card rounded-2xl p-2 border border-transparent hover:border-border hover:shadow-premium-lg ${video.isShort ? 'row-span-2' : ''}`}
+      className={`flex flex-col gap-3 group bg-card rounded-2xl p-2 border transition-all duration-300 ${
+        isSelected 
+          ? 'border-primary ring-2 ring-primary/20' 
+          : 'border-transparent hover:border-border'
+      } hover:shadow-premium-lg ${video.isShort ? 'row-span-2' : ''}`}
       style={{ willChange: 'transform' }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       <motion.div
         className={`relative rounded-xl overflow-hidden bg-muted cursor-pointer ${video.isShort ? 'aspect-[9/16]' : 'aspect-video'}`}
-        onClick={() => onPreview?.(video)}
+        onClick={() => showCheckbox && onSelect ? onSelect(video.id) : onPreview?.(video)}
         whileHover={{ scale: 1.02 }}
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       >
+        <motion.img 
+          src={video.thumbnail} 
+          alt={video.title} 
+          className="w-full h-full object-cover"
+          animate={{ scale: isHovered ? 1.05 : 1 }}
+          transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
+          loading="lazy" 
+        />
+
+        {/* Checkbox for multi-select */}
+        {showCheckbox && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="absolute top-2 left-2 z-10"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect?.(video.id);
+            }}
+          >
+            <Checkbox 
+              checked={isSelected}
+              className="w-5 h-5 bg-background/90 backdrop-blur-sm border-2 shadow-md"
+            />
+          </motion.div>
+        )}
         <motion.img 
           src={video.thumbnail} 
           alt={video.title} 
